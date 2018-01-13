@@ -1,0 +1,114 @@
+# ETL - Python
+import datetime
+import os 
+import subprocess
+from google.cloud import bigquery
+
+
+def overwrite_bqtable(table_loc,file_dir):
+    command = "bq load --autodetect --replace --source_format=CSV " + table_loc + " " + file_dir
+    print(command)
+    subprocess.call(command,shell = True) 
+    
+def append_bqtable(table_loc,file_dir):
+    command = "bq load --noreplace --source_format=CSV " + table_loc + " " + file_dir
+    print(command)
+    subprocess.call(command,shell = True) 
+    
+#day = datetime.datetime.now() - datetime.timedelta(days=1)
+day = datetime.datetime(2014, 1, 1)
+day = day.strftime("%Y-%m-%d")
+print(day)
+
+base_dir = "C:\\Users\\yiqin\\Dropbox\\UCD\\17Fall\\ETL\\" + day
+files = os.listdir(base_dir) 
+
+#load dat into bigquery    
+for file in files:
+    file_dir = os.path.join(base_dir,file)
+    file_name = str(file).split(".")[0]
+    #command = "gsutil cp " + file_dir + " gs://bax421final"
+    newtable_loc = "bax421final:data." + file_name
+    oldtable_loc = "bax421final:data." + file_name.split("_")[1] + "_etl"
+    
+    overwrite_bqtable(newtable_loc,file_dir)
+    append_bqtable(oldtable_loc,file_dir)
+
+#run a insert query in bigquery to append table
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"]="C:\\Users\\yiqin\\Dropbox\\UCD\\17Fall\\421 Data Management\\Final Project\\bax421final.json"
+client = bigquery.Client()
+
+#select column naem from data dictionary to crate the body of isnert query
+def genSQLbody(table_name):
+    query_job = client.query("""
+    select concat(Variable,',')
+    from `bax421final.data.data_dictionary`
+    where table = """ + table_name)
+    query_job.result()
+    
+    rows = query_job.result() # Waits for query to finish
+    sqlBody = ""                       
+    for row in rows:
+        #print(row[0])
+        sqlBody = sqlBody + row[0]+ "\n"
+    sqlBody = sqlBody[:-2]
+    
+    return sqlBody
+
+#append weather table
+query_weather_head = "insert `bax421final.data.weathers_etl` ("
+query_weather_tail1 = ") select "
+query_weather_tail2 = " from `bax421final.data.stg_weathers`"
+query_weather_body = genSQLbody("'weathers'")
+query_weather = query_weather_head + query_weather_body + query_weather_tail1 + query_weather_body + query_weather_tail2
+print(query_weather)
+
+query_job_weather= client.query(query_weather) 
+query_job_weather.result()
+
+#append flight table
+query_flight_head = "insert `bax421final.data.flights_etl` ("
+query_flight_tail1 = ") select "
+query_flight_tail2 = " from `bax421final.data.stg_flights`"
+query_flight_body = genSQLbody("'flights'")
+query_flight = query_flight_head + query_flight_body + query_flight_tail1 + query_flight_body + query_flight_tail2
+print(query_flight)
+
+query_job_flight = client.query(query_flight)
+query_job_flight.result()
+
+
+
+
+
+
+
+"""
+def load_data_from_file(dataset_id, table_id, source_file):    
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"]="C:\\Users\\yiqin\\Dropbox\\UCD\\17Fall\\421 Data Management\\Final Project\\bax421final.json"
+    bigquery_client = bigquery.Client()
+
+    dataset_ref = bigquery_client.dataset(dataset_id)
+    table_ref = dataset_ref.table(table_id)
+
+    with open(source_file, 'rb') as source_file:
+        job_config = bigquery.LoadJobConfig()
+        job_config.source_format = 'CSV'
+        job_config.skip_leading_rows = 1 ##skip first row but do not work
+        job_config.write_disposition = 'WRITE_APPEND' #'WRITE_EMPTY' WRITE_TRUNCATE WRITE_APPEND
+        #job_config.autodetect = True
+        job = bigquery_client.load_table_from_file(
+            source_file, table_ref, job_config=job_config)
+
+    job.result()  # Waits for job to complete
+
+    print('Loaded {} rows into {}:{}.'.format(
+        job.output_rows, dataset_id, table_id))
+    
+    
+dataset_id = "data"
+table_id = "weathers_etl" #"weathers_etl"
+source_file = "C:\\Users\yiqin\\Dropbox\\UCD\\17Fall\\ETL\\2014-01-01\\stg_weathers.csv"
+
+load_data_from_file(dataset_id,table_id,source_file)
+"""
